@@ -69,32 +69,22 @@
 		public function entryDataCleanup($entry_id, $data = null) {
 			$field_id = $this->get('id');
 
-			if(!isset(self::$cacheEntries[$entry_id . "-" . $field_id])) {
-				self::$cacheEntries[$entry_id . "-" . $field_id] = self::$db->fetchCol('linked_entry_id',
-					sprintf("
-						SELECT
-							f.linked_entry_id
-						FROM
-							`tbl_entries_data_{$field_id}` AS f
-						WHERE
-							f.entry_id = '{$entry_id}'
-					")
-				);
-			}
-			$entries = self::$cacheEntries[$entry_id . "-" . $field_id];
+			$entries = self::$cacheEntries[$entry_id . "-" . $field_id] = self::$db->fetchCol('linked_entry_id',
+				sprintf("
+					SELECT
+						f.linked_entry_id
+					FROM
+						`tbl_entries_data_{$field_id}` AS f
+					WHERE
+						f.entry_id = '{$entry_id}'
+				")
+			);
 
 			foreach ($entries as $linked_entry_id) {
 				if (is_null($linked_entry_id)) continue;
 
 				$linked_section_id = $this->get('linked_section_id');
-
-				if(!isset(self::$cacheEntries[$linked_entry_id . "-" . $linked_section_id])) {
-					self::$cacheEntries[$linked_entry_id . "-" . $linked_section_id] = @current(
-						self::$em->fetch($linked_entry_id, $linked_section_id)
-					);
-				}
-
-				$entry = self::$cacheEntries[$linked_entry_id . "-" . $linked_section_id];
+				$entry = self::cachedEntry($linked_entry_id, $linked_section_id);
 
 				if (!is_object($entry)) continue;
 
@@ -295,7 +285,7 @@
 
 			// Update child field:
 			if ($linked_field_id) {
-				$field = self::$fm->fetch($linked_field_id);
+				$field = self::cachedFields($linked_field_id);
 
 				if (is_object($field) and $field->get('linked_field_id') != $field_id) {
 					$field->set('linked_section_id', $this->get('parent_section'));
@@ -412,7 +402,7 @@
 				foreach ($remove as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
 
-					$entry = @current(self::$em->fetch($linked_entry_id, $this->get('linked_section_id')));
+					$entry = self::cachedEntry($linked_entry_id, $this->get('linked_section_id'));
 
 					if (!is_object($entry)) continue;
 
@@ -441,7 +431,7 @@
 				foreach ($data as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
 
-					$entry = @current(self::$em->fetch($linked_entry_id, $this->get('linked_section_id')));
+					$entry = self::cachedEntry($linked_entry_id, $this->get('linked_section_id'));
 
 					if (!is_object($entry)) continue;
 
@@ -615,8 +605,8 @@
 					if ($this->get('column_mode') != 'count') {
 						if ($this->get('column_mode') == 'last-item') {
 							$order = 'ASC';
-
-						} else {
+						}
+						else {
 							$order = 'DESC';
 						}
 
@@ -823,6 +813,17 @@
 				self::$cacheSections[$key][$section_id] = current($section->fetchVisibleColumns());
 			}
 			return self::$cacheSections[$key][$section_id];
+		}
+
+		public function cachedEntry($linked_entry_id, $linked_section_id, $key = "fetch") {
+			$cacheName = $linked_entry_id . "-" . $linked_section_id;
+
+			if(!isset(self::$cacheEntries[$key][$cacheName])) {
+				self::$cacheEntries[$key][$cacheName] = current(
+					self::$em->fetch($linked_entry_id, $linked_section_id)
+				);
+			}
+			return self::$cacheEntries[$key][$cacheName];
 		}
 
 		public function cachedEntryCounts($entry_id, $entry, $key = "associated-counts") {
