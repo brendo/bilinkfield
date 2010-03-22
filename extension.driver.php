@@ -1,12 +1,10 @@
 <?php
-	
+
 	class Extension_BiLinkField extends Extension {
 	/*-------------------------------------------------------------------------
 		Definition:
 	-------------------------------------------------------------------------*/
-		
-		// Doing a submodule test...
-		
+
 		public function about() {
 			return array(
 				'name'			=> 'Field: Bi Link',
@@ -20,7 +18,7 @@
 				'description'	=> 'A bi-directional linking system for Symphony.'
 			);
 		}
-		
+
 		public function install() {
 			$this->_Parent->Database->query("
 				CREATE TABLE IF NOT EXISTS `tbl_fields_bilink` (
@@ -36,15 +34,15 @@
 					KEY `linked_field_id` (`linked_field_id`)
 				)
 			");
-			
+
 			return true;
 		}
-		
+
 		public function uninstall() {
 			$this->_Parent->Database->query("DROP TABLE `tbl_fields_bilink`");
-			
+
 			return true;
 		}
 	}
-		
+
 ?>
