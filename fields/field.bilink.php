@@ -402,7 +402,7 @@
 				foreach ($remove as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
 
-					$entry = self::$em->fetch($linked_entry_id, $linked_section_id);
+					$entry = self::$em->fetch($linked_entry_id, $this->get('linked_section_id'));
 
 					if (!is_object($entry)) continue;
 
@@ -431,7 +431,7 @@
 				foreach ($data as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
 
-					$entry = self::$em->fetch($linked_entry_id, $linked_section_id);
+					$entry = self::$em->fetch($linked_entry_id, $this->get('linked_section_id'));
 
 					if (!is_object($entry)) continue;
 
