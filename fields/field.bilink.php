@@ -84,7 +84,7 @@
 				if (is_null($linked_entry_id)) continue;
 
 				$linked_section_id = $this->get('linked_section_id');
-				$entry = self::cachedEntry($linked_entry_id, $linked_section_id);
+				$entry = self::$em->fetch($linked_entry_id, $linked_section_id);
 
 				if (!is_object($entry)) continue;
 
@@ -402,7 +402,7 @@
 				foreach ($remove as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
 
-					$entry = self::cachedEntry($linked_entry_id, $this->get('linked_section_id'));
+					$entry = self::$em->fetch($linked_entry_id, $linked_section_id);
 
 					if (!is_object($entry)) continue;
 
@@ -431,7 +431,7 @@
 				foreach ($data as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
 
-					$entry = self::cachedEntry($linked_entry_id, $this->get('linked_section_id'));
+					$entry = self::$em->fetch($linked_entry_id, $linked_section_id);
 
 					if (!is_object($entry)) continue;
 
@@ -754,7 +754,7 @@
 			// Find mode:
 			if (preg_match('/^(not):/', $data[0], $match)) {
 				$data[0] = trim(substr($data[0], strlen(next($match)) + 1));
-				$name = 'method_' . current($match); $$name = true;
+				$name = 'method_' . current($match);
 			}
 
 			if ($andOperation) {
@@ -813,17 +813,6 @@
 				self::$cacheSections[$key][$section_id] = current($section->fetchVisibleColumns());
 			}
 			return self::$cacheSections[$key][$section_id];
-		}
-
-		public function cachedEntry($linked_entry_id, $linked_section_id, $key = "fetch") {
-			$cacheName = $linked_entry_id . "-" . $linked_section_id;
-
-			if(!isset(self::$cacheEntries[$key][$cacheName])) {
-				self::$cacheEntries[$key][$cacheName] = current(
-					self::$em->fetch($linked_entry_id, $linked_section_id)
-				);
-			}
-			return self::$cacheEntries[$key][$cacheName];
 		}
 
 		public function cachedEntryCounts($entry_id, $entry, $key = "associated-counts") {
