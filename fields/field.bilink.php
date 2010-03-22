@@ -507,7 +507,6 @@
 
 		public function appendFormattedElement(&$wrapper, $data, $encode = false, $mode = null, $entry_id = null) {
 			$linked_section_id = $this->get('linked_section_id');
-
 			$section = self::cachedSection($linked_section_id);
 			$data = $this->prepareData($data);
 
