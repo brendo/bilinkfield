@@ -69,7 +69,7 @@
 		public function entryDataCleanup($entry_id, $data = null) {
 			$field_id = $this->get('id');
 
-			$entries = self::$cacheEntries[$entry_id . "-" . $field_id] = self::$db->fetchCol('linked_entry_id',
+			$entries = self::$db->fetchCol('linked_entry_id',
 				sprintf("
 					SELECT
 						f.linked_entry_id
@@ -578,7 +578,7 @@
 
 					// Add fields:
 					foreach ($data as $field_id => $values) {
-						$field = self::cachedFields($field_id);
+						$field = self::$fm->fetch($field_id);
 
 						if ($field->get('type') == $this->get('type')) continue;
 
