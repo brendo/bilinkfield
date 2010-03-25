@@ -13,6 +13,8 @@
 		private static $cacheEntries = array();
 		private static $cacheFields = array();
 
+		private $_linked_field = null;
+
 	/*-------------------------------------------------------------------------
 		Definition:
 	-------------------------------------------------------------------------*/
@@ -65,27 +67,27 @@
 		}
 
 		public function entryDataCleanup($entry_id, $data = null) {
-			$field_id = $this->get('id');
+			$linked_field_id = $this->get('linked_field_id');
 
-			$entries = self::$db->fetchCol('linked_entry_id',
-				sprintf("
-					SELECT
-						f.linked_entry_id
-					FROM
-						`tbl_entries_data_{$field_id}` AS f
-					WHERE
-						f.entry_id = '{$entry_id}'
-				")
+			$entry_ids = self::$db->fetchCol('linked_entry_id',	sprintf(
+					"
+						SELECT
+							f.linked_entry_id
+						FROM
+							`tbl_entries_data_%s` AS f
+						WHERE
+							f.entry_id = '%s'
+					",
+					$this->get('id'),
+					$entry_id
+				)
 			);
+			$entries = self::$em->fetch($entry_ids, $this->get('linked_section_id'));
 
-			foreach ($entries as $linked_entry_id) {
-				if (is_null($linked_entry_id)) continue;
-
-				$entry = self::$em->fetch($linked_entry_id, $this->get('linked_section_id'));
-
+			if($entries) foreach ($entries as $entry) {
 				if (!is_object($entry)) continue;
 
-				$values = $entry->getData($this->get('linked_field_id'));
+				$values = $entry->getData($linked_field_id);
 
 				if (array_key_exists('linked_entry_id', $values)) {
 					$values = $values['linked_entry_id'];
@@ -94,19 +96,53 @@
 				if (is_null($values)) {
 					$values = array();
 
-				} else if (!is_array($values)) {
+				}
+				else if (!is_array($values)) {
 					$values = array($values);
 				}
 
 				$values = array_diff($values, array($entry_id));
 
-				$entry->setData($this->get('linked_field_id'), array(
+				if (empty($values)) {
+					$values = null;
+				}
+
+				$entry->setData($linked_field_id, array(
 					'linked_entry_id'	=> $values
 				));
 				$entry->commit();
 			}
 
 			return parent::entryDataCleanup($entry_id, $data);
+		}
+
+	/*-------------------------------------------------------------------------
+		Utilities:
+	-------------------------------------------------------------------------*/
+
+		public function Linked(){
+			if(!($this->_linked_field instanceof StdClass)) {
+				$this->_linked_field = (object)self::$db->fetchRow(0, sprintf(
+						"
+							SELECT
+								`allow_multiple`
+							FROM
+								`tbl_fields_bilink`
+							WHERE
+								`field_id` = '%s'
+							LIMIT
+								1
+						",
+						$this->get('linked_field_id')
+					)
+				);
+			}
+
+			return $this->_linked_field;
+		}
+
+		protected function isOneToManyRelationship(){
+			return (strcasecmp($this->Linked()->allow_multiple, 'no') === 0);
 		}
 
 	/*-------------------------------------------------------------------------
@@ -236,15 +272,23 @@
 			$handle = $this->handle();
 
 			$linked_field_id = $this->get('linked_field_id');
-			$linked_section_id = self::$db->fetchVar('parent_section', 0, "
-				SELECT
-					f.parent_section
-				FROM
-					`tbl_fields` AS f
-				WHERE
-					f.id = {$linked_field_id}
-				LIMIT 1
-			");
+			if($linked_field_id) {
+				$linked_section_id = self::$db->fetchVar('parent_section', 0, sprintf(
+			          "
+			            SELECT
+			              f.parent_section
+			            FROM
+			              `tbl_fields` AS f
+			            WHERE
+			              f.id = %s
+			            LIMIT 1
+			          ",
+			          $linked_field_id
+			        )
+				);
+			} else {
+				$linked_field_id = $linked_seection_id = null;
+			}
 
 			$fields = array(
 				'field_id'			=> $this->get('id'),
@@ -286,29 +330,34 @@
 		Publish:
 	-------------------------------------------------------------------------*/
 
-		public function findEntries($entry_ids) {
-			$linked_section_id = $this->get('linked_section_id');
+		public function findEntries($entry_ids, $current_entry_id = null) {
+			if (!is_array($entry_ids)) {
+				if (is_null($entry_ids)) $entry_ids = array();
+				else $entry_ids = array($entry_ids);
+			}
 
+			$linked_section_id = $this->get('linked_section_id');
 			$section = self::cachedSection($linked_section_id);
 			$entries = self::cachedEntriesBySection($linked_section_id);
 
 			$options = array();
-			if(is_null($entry_ids)) $entry_ids = array();
 
 			if ($this->get('required') != 'yes') $options[] = array(null, false, null);
 
 			if(!$section instanceOf Section or empty($entries)) return $options;
 
 			$field = self::cachedSectionVisibleColumn($linked_section_id, $section);
-
 			if(!is_object($field)) return $options;
-
 			$field_id = $field->get('id');
 
 			foreach ($entries as $order => $entry) {
-				if (!is_object($entry)) continue;
+				if (!is_object($entry) or $current_entry_id == $entry->get('id')) continue;
 
-				$selected = in_array($entry->get('id'), $entry_ids);
+				if(is_array($entry_ids)) {
+					$selected = in_array($entry->get('id'), $entry_ids);
+				} else {
+					$selected = false;
+				}
 
 				$value = $field->prepareTableValue(
 					$entry->getData($field_id)
@@ -322,7 +371,7 @@
 			return $options;
 		}
 
-		public function displayPublishPanel(&$wrapper, $data = null, $error = null, $prefix = null, $postfix = null) {
+		public function displayPublishPanel(&$wrapper, $data = null, $error = null, $prefix = null, $postfix = null, $entry_id = null) {
 			$handle = $this->get('element_name'); $entry_ids = array();
 
 			if (!is_array($data['linked_entry_id']) and !is_null($data['linked_entry_id'])) {
@@ -332,11 +381,16 @@
 				$entry_ids = $data['linked_entry_id'];
 			}
 
-			$options = $this->findEntries($entry_ids);
+			$options = $this->findEntries($entry_ids, $entry_id);
 
 			$fieldname = "fields{$prefix}[{$handle}]{$postfix}";
 
-			if ($this->get('allow_multiple') == 'yes') $fieldname .= '[]';
+			if ($this->get('allow_multiple') == 'yes') {
+				$fieldname .= '[]';
+			}
+			else if($this->get('required') != 'yes') {
+				array_unshift($options, array(null, false, null));
+			}
 
 			$label = Widget::Label($this->get('label'));
 			$select = Widget::Select($fieldname, $options);
@@ -388,6 +442,35 @@
 
 			if (!$simulate) {
 
+				// We need to also remove any other entries linking to the selected
+				// if the linked field is single select. This is to maintain any
+				// one-to-many or one-to-one relationships
+				if($this->Linked()->allow_multiple == 'no'){
+					self::$db->query(sprintf(
+							"
+								DELETE FROM
+									`tbl_entries_data_%s`
+								WHERE
+									`linked_entry_id` IN ('%s')
+							",
+							$field_id,
+							implode("','", $data)
+						)
+					);
+
+					self::$db->query(sprintf(
+							"
+								DELETE FROM
+									`tbl_entries_data_%s`
+								WHERE
+									`entry_id` IN ('%s')
+							",
+							$this->get('linked_field_id'),
+							implode("','", $data)
+						)
+					);
+				}
+
 				// Remove old entries:
 				foreach ($remove as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
@@ -398,7 +481,7 @@
 
 					$values = $entry->getData($this->get('linked_field_id'));
 
-					if (array_key_exists('linked_entry_id', $values)) {
+					if (is_array($values) && array_key_exists('linked_entry_id', $values)) {
 						$values = $values['linked_entry_id'];
 					}
 
@@ -409,7 +492,13 @@
 						$values = array($values);
 					}
 
-					$values = array_diff($values, array($entry_id));
+					$values = array_values(array_diff($values, array($entry_id)));
+
+					// This ensures that the MySQL::insert() function does not
+					// end up creating invalid SQL (bug with Symphony <= 2.0.6)
+					if(count($values) == 1){
+						$values = $values[0];
+					}
 
 					$entry->setData($this->get('linked_field_id'), array(
 						'linked_entry_id'	=> $values
@@ -427,7 +516,7 @@
 
 					$values = $entry->getData($this->get('linked_field_id'));
 
-					if (array_key_exists('linked_entry_id', $values)) {
+					if (is_array($values) && array_key_exists('linked_entry_id', $values)) {
 						$values = $values['linked_entry_id'];
 					}
 
@@ -439,6 +528,13 @@
 					}
 
 					if (!in_array($entry_id, $values)) $values[] = $entry_id;
+
+					// This ensures that the MySQL::insert() function does not
+					// end up creating invalid SQL (bug with Symphony <= 2.0.6)
+					if(count($values) == 1){
+						$values = array_values($values);
+						$values = $values[0];
+					}
 
 					$entry->setData($this->get('linked_field_id'), array(
 						'linked_entry_id'	=> $values
@@ -486,6 +582,8 @@
 			$section = self::cachedSection($linked_section_id);
 			$data = $this->prepareData($data);
 
+			if ($mode == null) $mode = 'items';
+
 			$list = new XMLElement($this->get('element_name'));
 			$list->setAttribute('mode', $mode);
 
@@ -497,7 +595,9 @@
 				return;
 			}
 
-			$list->setAttribute('entries', count($data['linked_entry_id']));
+			$entries = self::$em->fetch($data['linked_entry_id'], $linked_section_id);
+			$list->setAttribute('entries', count($entries));
+
 			$list->appendChild(new XMLElement(
 				'section', $section->get('name'),
 				array(
@@ -508,7 +608,6 @@
 
 			// List:
 			if ($mode == 'items') {
-				$entries = self::$em->fetch($data['linked_entry_id'], $linked_section_id);
 				$field = self::cachedSectionVisibleColumn($section->get('id'), $section);
 
 				foreach ($entries as $count => $entry) {
@@ -528,8 +627,6 @@
 
 			// Full:
 			} else if ($mode == 'entries') {
-				$entries = self::$em->fetch($data['linked_entry_id'], $linked_section_id);
-
 				foreach ($entries as $count => $entry) {
 					$data = $entry->getData();
 
@@ -542,7 +639,7 @@
 
 						if ($field->get('type') == $this->get('type')) continue;
 
-						$field->appendFormattedElement($item, $values, false);
+						$field->appendFormattedElement($item, $values, false, null);
 					}
 
 					$list->appendChild($item);
@@ -557,7 +654,12 @@
 			$linked = self::cachedFields($this->get('linked_field_id'));
 			$custom_link = null; $more_link = null;
 
-			if ($section instanceof Section) {
+			// Not setup correctly:
+			if (!$section instanceof Section) {
+				 return parent::prepareTableValue(array(), $link, $entry_id);
+			}
+
+			if(!empty($data['linked_entry_id'])) {
 				$field = self::cachedSectionVisibleColumn($section->get('id'), $section);
 				$data = $this->prepareData($data);
 
@@ -571,7 +673,13 @@
 						}
 
 						self::$em->setFetchSorting('date', $order);
-						$entries = self::$em->fetch($data['linked_entry_id'], $this->get('linked_section_id'), 1);
+						$cacheName = implode("-",array_values($data['linked_entry_id']));
+						if(!isset(self::$cacheEntries['fetch'][$cacheName])) {
+							self::$cacheEntries['fetch'][$cacheName] = self::$em->fetch(
+								$data['linked_entry_id'],$this->get('linked_section_id'),1
+							);
+						}
+						$entries = self::$cacheEntries['fetch'][$cacheName];
 
 						if (is_array($entries) and !empty($entries)) {
 							$entry = current($entries);
@@ -585,7 +693,9 @@
 								)
 							);
 							$custom_link->setValue(strip_tags(
-								$field->prepareTableValue($entry->getData($field->get('id')))
+								$field->prepareTableValue(
+									$entry->getData($field->get('id'))
+								)
 							));
 
 							$more_link = new XMLElement('a');
@@ -775,18 +885,18 @@
 			return self::$cacheSections[$key][$section_id];
 		}
 
-		public function cachedEntryCounts($entry_id, $entry, $key = "associated-counts") {
-			if(!isset(self::$cacheEntries[$key][$entry_id])) {
-				self::$cacheEntries[$key][$entry_id] = $entry->fetchAllAssociatedEntryCounts();
-			}
-			return self::$cacheEntries[$key][$entry_id];
-		}
-
 		public function cachedFields($field_id, $key = "fetch") {
 			if(!isset(self::$cacheFields[$key][$field_id])) {
 				self::$cacheFields[$key][$field_id] = self::$fm->fetch($field_id);
 			}
 			return self::$cacheFields[$key][$field_id];
+		}
+
+		public function cachedEntryCounts($entry_id, $entry, $key = "associated-counts") {
+			if(!isset(self::$cacheEntries[$key][$entry_id])) {
+				self::$cacheEntries[$key][$entry_id] = $entry->fetchAllAssociatedEntryCounts();
+			}
+			return self::$cacheEntries[$key][$entry_id];
 		}
 
 		public function cachedEntriesBySection($section_id, $key = "fetch-by-section") {
