@@ -287,7 +287,7 @@
 			        )
 				);
 			} else {
-				$linked_field_id = $linked_seection_id = null;
+				$linked_field_id = $linked_section_id = null;
 			}
 
 			$fields = array(
@@ -423,9 +423,7 @@
 			foreach ($data as $a => $value) {
 				$result['linked_entry_id'][] = $data[$a];
 			}
-/*
-			var_dump("I'm updating " . $entry_id . " and it's linked_section " . $this->get('linked_section_id'));
-*/
+
 			// Update linked field:
 			$remove = self::$db->fetchCol('linked_entry_id',
 				sprintf("
@@ -437,14 +435,9 @@
 						f.entry_id = '{$entry_id}'
 				")
 			);
-/*
-			var_dump("The linked_entry_id's are " . implode(", ",$remove));
-*/
+
 			$remove = array_diff($remove, $data);
-/*
-			var_dump("These will be removed: " . implode(", ",$remove));
-			var_dump("These will be retained: " . implode(", ", $data));
-*/
+
 			if (!$simulate) {
 				// We need to also remove any other entries linking to the selected
 				// if the linked field is single select. This is to maintain any
