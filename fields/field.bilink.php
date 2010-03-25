@@ -3,8 +3,6 @@
 	if (!defined('__IN_SYMPHONY__')) die('<h2>Symphony Error</h2><p>You cannot directly access this file</p>');
 
 	class FieldBiLink extends Field {
-		protected $_driver = null;
-
 		protected static $ready = false;
 		protected static $db = null;
 		protected static $em = null;
@@ -83,8 +81,7 @@
 			foreach ($entries as $linked_entry_id) {
 				if (is_null($linked_entry_id)) continue;
 
-				$linked_section_id = $this->get('linked_section_id');
-				$entry = self::$em->fetch($linked_entry_id, $linked_section_id);
+				$entry = self::$em->fetch($linked_entry_id, $this->get('linked_section_id'));
 
 				if (!is_object($entry)) continue;
 
@@ -110,18 +107,6 @@
 			}
 
 			return parent::entryDataCleanup($entry_id, $data);
-		}
-
-	/*-------------------------------------------------------------------------
-		Utilities:
-	-------------------------------------------------------------------------*/
-
-		protected function getFields() {
-			$section = self::cachedSection($this->get('linked_section_id'));
-
-			if (empty($section)) return null;
-
-			return $section->fetchFields();
 		}
 
 	/*-------------------------------------------------------------------------
@@ -287,7 +272,7 @@
 			if ($linked_field_id) {
 				$field = self::cachedFields($linked_field_id);
 
-				if (is_object($field) and $field->get('linked_field_id') != $field_id) {
+				if (is_object($field) and $linked_field_id != $field_id) {
 					$field->set('linked_section_id', $this->get('parent_section'));
 					$field->set('linked_field_id', $field_id);
 					$field->commit();
@@ -302,26 +287,31 @@
 	-------------------------------------------------------------------------*/
 
 		public function findEntries($entry_ids) {
-			$section = self::cachedSection($this->get('linked_section_id'));
-			$entries = self::$em->fetch(null, $this->get('linked_section_id'));
+			$linked_section_id = $this->get('linked_section_id');
+
+			$section = self::cachedSection($linked_section_id);
+			$entries = self::cachedEntriesBySection($linked_section_id);
+
 			$options = array();
 			if(is_null($entry_ids)) $entry_ids = array();
 
 			if ($this->get('required') != 'yes') $options[] = array(null, false, null);
 
-			if (!is_object($section) or empty($entries)) return $options;
+			if(!$section instanceOf Section or empty($entries)) return $options;
+
+			$field = self::cachedSectionVisibleColumn($linked_section_id, $section);
+
+			if(!is_object($field)) return $options;
+
+			$field_id = $field->get('id');
 
 			foreach ($entries as $order => $entry) {
 				if (!is_object($entry)) continue;
 
-				$field = self::cachedSectionVisibleColumn($section->get('id'), $section);
-
-				if (!is_object($field)) continue;
-
 				$selected = in_array($entry->get('id'), $entry_ids);
 
 				$value = $field->prepareTableValue(
-					$entry->getData($field->get('id'))
+					$entry->getData($field_id)
 				);
 
 				$options[] = array(
@@ -481,10 +471,6 @@
 		}
 
 		public function prepareData($data) {
-			if (!is_array($data['linked_entry_id'])) {
-				$data['linked_entry_id'] = array($data['linked_entry_id']);
-			}
-
 			if (is_null($data['linked_entry_id'])) {
 				$data['linked_entry_id'] = array();
 
@@ -502,29 +488,29 @@
 
 			$list = new XMLElement($this->get('element_name'));
 			$list->setAttribute('mode', $mode);
-			$list->setAttribute('entries', count($data['linked_entry_id']));
 
 			// No section or relations:
-			if (empty($section) or @empty($data['linked_entry_id'][0])) {
+			if (!$section instanceof Section or empty($data['linked_entry_id'])) {
 				$list->setAttribute('entries', 0);
 				$wrapper->appendChild($list);
 
 				return;
 			}
 
+			$list->setAttribute('entries', count($data['linked_entry_id']));
+			$list->appendChild(new XMLElement(
+				'section', $section->get('name'),
+				array(
+					'id'		=> $section->get('id'),
+					'handle'	=> $section->get('handle')
+				)
+			));
+
 			// List:
-			if ($mode == null or $mode == 'items') {
+			if ($mode == 'items') {
 				$entries = self::$em->fetch($data['linked_entry_id'], $linked_section_id);
-
-				$list->appendChild(new XMLElement(
-					'section', $section->get('name'),
-					array(
-						'id'		=> $section->get('id'),
-						'handle'	=> $section->get('handle')
-					)
-				));
-
 				$field = self::cachedSectionVisibleColumn($section->get('id'), $section);
+
 				foreach ($entries as $count => $entry) {
 					if (empty($entry)) continue;
 
@@ -544,37 +530,11 @@
 			} else if ($mode == 'entries') {
 				$entries = self::$em->fetch($data['linked_entry_id'], $linked_section_id);
 
-				$list->appendChild(new XMLElement(
-					'section', $section->get('name'),
-					array(
-						'id'		=> $section->get('id'),
-						'handle'	=> $section->get('handle')
-					)
-				));
-
 				foreach ($entries as $count => $entry) {
-					$associated = self::cachedEntryCounts($entry->get('id'), $entry);
-
 					$data = $entry->getData();
 
 					$item = new XMLElement('entry');
 					$item->setAttribute('id', $entry->get('id'));
-
-					if (is_array($associated) and !empty($associated)) {
-						foreach ($associated as $section => $count) {
-							$handle = self::$db->fetchVar('handle', 0, "
-								SELECT
-									s.handle
-								FROM
-									`tbl_sections` AS s
-								WHERE
-									s.id = '{$section}'
-								LIMIT 1
-							");
-
-							$item->setAttribute($handle, (string)$count);
-						}
-					}
 
 					// Add fields:
 					foreach ($data as $field_id => $values) {
@@ -827,6 +787,13 @@
 				self::$cacheFields[$key][$field_id] = self::$fm->fetch($field_id);
 			}
 			return self::$cacheFields[$key][$field_id];
+		}
+
+		public function cachedEntriesBySection($section_id, $key = "fetch-by-section") {
+			if(!isset(self::$cacheEntries[$key][$section_id])) {
+				self::$cacheEntries[$key][$section_id] = self::$em->fetch(null, $section_id);
+			}
+			return self::$cacheEntries[$key][$section_id];
 		}
 	}
 
