@@ -82,7 +82,7 @@
 					$entry_id
 				)
 			);
-			$entries = self::$em->fetch($entry_ids, $this->get('linked_section_id'));
+			$entries = current(self::$em->fetch($entry_ids, $this->get('linked_section_id')));
 
 			if($entries) foreach ($entries as $entry) {
 				if (!is_object($entry)) continue;
@@ -342,8 +342,6 @@
 
 			$options = array();
 
-			if ($this->get('required') != 'yes') $options[] = array(null, false, null);
-
 			if(!$section instanceOf Section or empty($entries)) return $options;
 
 			$field = self::cachedSectionVisibleColumn($linked_section_id, $section);
@@ -425,7 +423,9 @@
 			foreach ($data as $a => $value) {
 				$result['linked_entry_id'][] = $data[$a];
 			}
-
+/*
+			var_dump("I'm updating " . $entry_id . " and it's linked_section " . $this->get('linked_section_id'));
+*/
 			// Update linked field:
 			$remove = self::$db->fetchCol('linked_entry_id',
 				sprintf("
@@ -437,15 +437,19 @@
 						f.entry_id = '{$entry_id}'
 				")
 			);
-
+/*
+			var_dump("The linked_entry_id's are " . implode(", ",$remove));
+*/
 			$remove = array_diff($remove, $data);
-
+/*
+			var_dump("These will be removed: " . implode(", ",$remove));
+			var_dump("These will be retained: " . implode(", ", $data));
+*/
 			if (!$simulate) {
-
 				// We need to also remove any other entries linking to the selected
 				// if the linked field is single select. This is to maintain any
 				// one-to-many or one-to-one relationships
-				if($this->Linked()->allow_multiple == 'no'){
+				if($this->Linked()->allow_multiple == 'no' && is_null($data[0])) {
 					self::$db->query(sprintf(
 							"
 								DELETE FROM
@@ -475,7 +479,7 @@
 				foreach ($remove as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
 
-					$entry = self::$em->fetch($linked_entry_id, $this->get('linked_section_id'));
+					$entry = current(self::$em->fetch($linked_entry_id, $this->get('linked_section_id')));
 
 					if (!is_object($entry)) continue;
 
@@ -510,7 +514,7 @@
 				foreach ($data as $linked_entry_id) {
 					if (is_null($linked_entry_id)) continue;
 
-					$entry = self::$em->fetch($linked_entry_id, $this->get('linked_section_id'));
+					$entry = current(self::$em->fetch($linked_entry_id, $this->get('linked_section_id')));
 
 					if (!is_object($entry)) continue;
 
