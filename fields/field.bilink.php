@@ -82,7 +82,7 @@
 					$entry_id
 				)
 			);
-			$entries = current(self::$em->fetch($entry_ids, $this->get('linked_section_id')));
+			$entries = self::$em->fetch($entry_ids, $this->get('linked_section_id'));
 
 			if($entries) foreach ($entries as $entry) {
 				if (!is_object($entry)) continue;
