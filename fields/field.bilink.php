@@ -316,7 +316,7 @@
 			if ($linked_field_id) {
 				$field = self::cachedFields($linked_field_id);
 
-				if (is_object($field) and $linked_field_id != $field_id) {
+				if (is_object($field) and $field->get('linked_field_id') != $field_id) {
 					$field->set('linked_section_id', $this->get('parent_section'));
 					$field->set('linked_field_id', $field_id);
 					$field->commit();
