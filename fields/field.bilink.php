@@ -161,8 +161,8 @@
 			if (is_array($sections) and !empty($sections)) {
 				foreach ($sections as $section) {
 					$groups[$section->get('id')] = array(
-						'fields'	=> $section->fetchFields(),
-						'section'	=> $section
+						'fields'	=> $section->fetchFields('bilink'),
+						'section'	=> $section->get('name')
 					);
 				}
 			}
@@ -175,13 +175,9 @@
 				$fields = array();
 
 				foreach ($group['fields'] as $field) {
-					if (
-						$field->get('type') == 'bilink'
-						and $field->get('id') != $this->get('id')
-					) {
-						$selected = $this->get('linked_field_id') == $field->get('id');
+					if ($field->get('id') != $this->get('id')) {
 						$fields[] = array(
-							$field->get('id'), $selected, $field->get('label')
+							$field->get('id'), ($this->get('linked_field_id') == $field->get('id')), $field->get('label')
 						);
 					}
 				}
@@ -189,7 +185,7 @@
 				if (empty($fields)) continue;
 
 				$options[] = array(
-					'label'		=> $group['section']->get('name'),
+					'label'		=> $group['section'],
 					'options'	=> $fields
 				);
 			}
